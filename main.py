@@ -47,5 +47,5 @@ if __name__ == '__main__':
     configs = parser.parse_args()
     print(configs)
     main()
-
+    print("update by xlance.")
     # python main.py -batch_size 4 -use_description -use_entity_connection
