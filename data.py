@@ -2,7 +2,6 @@ import os
 import torch
 import random
 from torch.utils.data import Dataset, DataLoader
-# from transformers import T5Tokenizer
 from utils import read, read_file
 
 def batchify(output_dict, key, return_list=False):
@@ -14,7 +13,7 @@ def batchify(output_dict, key, return_list=False):
         return tensor_out
     if not isinstance(tensor_out[0], torch.LongTensor) and not isinstance(tensor_out[0], torch.FloatTensor):
         tensor_out = [torch.LongTensor(value) for value in tensor_out]
-    return tensor_out
+    return torch.stack(tensor_out, dim=0)
 
 
 
@@ -99,6 +98,7 @@ class KG_dataset(Dataset):
         tokenized_output_sequence = self.tokenizer(target_sequence, max_length=self.target_max_length, truncation=True, padding='max_length')
         source_ids = tokenized_input_sequence.input_ids
         target_ids = tokenized_output_sequence.input_ids
+        target_ids[target_ids==0] = -100
         target_mask = tokenized_output_sequence.attention_mask
         out = {
             'source_ids': source_ids,
