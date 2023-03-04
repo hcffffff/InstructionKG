@@ -13,13 +13,27 @@ from accelerate import Accelerator
 
 from data import KG_dataset
 
+def save_checkpoint(accelerator, epoch, model, optimizer, loss, val_mrr):
+    if configs.model_save_path == '':
+        print('MODEL SAVE ERROR, NO DIRECTORY.')
+        return
+    file_name = 'epoch-{:.2}-loss-{:.6}-mrr-{:.6}.pt'.format(epoch, loss, val_mrr)
+    checkpoint = {
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'loss': loss,
+        'val_mrr': val_mrr
+    }
+    accelerator.save(checkpoint, os.path.join(configs.model_save_path, file_name))
+    return
+
 
 def train():
     accelerator = Accelerator()
     device = accelerator.device
     print("using device: ", device)
     model = T5ForConditionalGeneration.from_pretrained(configs.pretrained_model).to(device)
-    optimizer = AdamW(model.parameters())
+    optimizer = AdamW(model.parameters(), lr=configs.learning_rate)
     tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
     KG_train_dataset = KG_dataset(configs, tokenizer)
     KG_train_dataLoader = DataLoader(KG_train_dataset, batch_size=configs.batch_size, collate_fn=KG_train_dataset._collate_fn, shuffle=True)
@@ -40,13 +54,25 @@ def train():
             training_loss += loss.item()
             accelerator.backward(loss)
             optimizer.step()
-        accelerator.print("epoch {} training loss {}.".format(epoch, training_loss))
-        if epoch+1 > configs.skip_n_epochs_val_training:
-            test()
+        accelerator.print("epoch {} training loss {:.8}.".format(epoch, training_loss))
+        if epoch+1 == configs.epochs:
+            val()
+            save_checkpoint(accelerator, epoch+1, model, optimizer, loss, val_mrr)
+        elif epoch+1 > configs.skip_n_epochs_val_training:
+            val()
+    test()
+    return
 
+def val():
+    '''
+    get mrr and hits@n results on validation dataset.
+    '''
     return
 
 def test():
+    '''
+    get mrr and hits@n results on test dataset.
+    '''
     return
 
 def main():
@@ -67,6 +93,7 @@ if __name__ == '__main__':
     parser.add_argument('-pretrained_model', default='model/pretrained_model/t5-base', help='Model Name')
     parser.add_argument('-batch_size', default=16, type=int, help='Training batch size')
     parser.add_argument('-epochs', default=20, type=int, help='Training epochs.')
+    parser.add_argument('-learning_rate', default=0.001, type=float, help='Learning rate in training.')
 
     parser.add_argument('-use_description', action='store_true', help='Whether to use description')
     parser.add_argument('-use_entity_connection', action='store_true', help='Whether to use entity connection')
@@ -81,6 +108,6 @@ if __name__ == '__main__':
     configs.model_save_path = os.path.join(configs.model_save_path, configs.dataset_name + '-' + str(datetime.now()))
     if configs.model == '':
         print('creating model save dir.')
-        # os.makedirs(configs.model_save_path)
+        os.makedirs(configs.model_save_path)
     main()
     # python main.py -dataset_name -batch_size 16 -use_description -use_entity_connection
