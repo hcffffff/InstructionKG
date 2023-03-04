@@ -14,7 +14,7 @@ def main():
     tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
     KG_train_dataset = KG_dataset(configs, tokenizer)
     KG_train_dataLoader = DataLoader(KG_train_dataset, batch_size=configs.batch_size, collate_fn=KG_train_dataset._collate_fn)
-    for batch_idx, batch in tqdm(KG_train_dataLoader):
+    for batch in tqdm(KG_train_dataLoader):
         input_ids = batch['source_ids']
         input_mask = batch['source_mask']
         target_ids = batch['target_ids']
@@ -39,7 +39,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-use_description', action='store_true', help='Whether to use description')
     parser.add_argument('-use_entity_connection', action='store_true', help='Whether to use entity connection')
-    parser.add_argument('-max_connection_num', default=4, type=int, help='Max connection triples used in training')
+    parser.add_argument('-max_relation_num', default=4, type=int, help='Max related triples used in training')
     parser.add_argument('-max_description_length', default=192, type=int, help='Max description length')
     parser.add_argument('-input_max_length', default=256, type=int, help='Max input sequence length')
     parser.add_argument('-target_max_length', default=16, type=int, help='Max output sequence length')
@@ -47,5 +47,4 @@ if __name__ == '__main__':
     configs = parser.parse_args()
     print(configs)
     main()
-    print("update by xlance.")
-    # python main.py -batch_size 4 -use_description -use_entity_connection
+    # python main.py -dataset_name -batch_size 16 -use_description -use_entity_connection

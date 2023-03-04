@@ -31,7 +31,7 @@ class KG_dataset(Dataset):
         print("entity nums: ", len(self.entityid2name))
         print("relation num: ", len(self.relationid2name))
         self.entityid2descrip = read_file(folder, 'entityid2description.txt', mode='descrip')
-        self.max_connection_num = configs.max_connection_num # 同一个entity 联想triples的数量
+        self.max_relation_num = configs.max_relation_num # 同一个entity 联想triples的数量
         self.tokenizer = tokenizer
 
         self.max_description_length = configs.max_description_length
@@ -62,8 +62,8 @@ class KG_dataset(Dataset):
                 for triple in self.train_triples_id:
                     if triple[1] == tail_id and triple[0] != head_id:
                         related_triples.append(triple)
-            if len(related_triples) > self.max_connection_num:
-                related_triples = random.sample(related_triples, self.max_connection_num)
+            if len(related_triples) > self.max_relation_num:
+                related_triples = random.sample(related_triples, self.max_relation_num)
             random.shuffle(related_triples)
         # related_triples: (head_id, tail_id, rel_id)
         description = ""
