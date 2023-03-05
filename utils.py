@@ -37,3 +37,31 @@ def read_file(dataset_path, filename, mode='descrip'):
             name = ' '.join(name)
         id2name.append(name)
     return id2name
+
+
+def _get_performance(ranks):
+    ranks = np.array(ranks, dtype=np.float)
+    out = dict()
+    out['MR'] = ranks.mean(axis=0)
+    out['MRR'] = (1. / ranks).mean(axis=0)
+    out['Hit@1'] = np.sum(ranks == 1, axis=0) / len(ranks)
+    out['Hit@3'] = np.sum(ranks <= 3, axis=0) / len(ranks)
+    out['Hit@10'] = np.sum(ranks <= 10, axis=0) / len(ranks)
+    return out
+
+def get_performance(tail_ranks, head_ranks):
+    tail_out = _get_performance(tail_ranks)
+    head_out = _get_performance(head_ranks)
+    mr = np.array([tail_out['MR'], head_out['MR']])
+    mrr = np.array([tail_out['MRR'], head_out['MRR']])
+    hit1 = np.array([tail_out['Hit@1'], head_out['Hit@1']])
+    hit3 = np.array([tail_out['Hit@3'], head_out['Hit@3']])
+    hit10 = np.array([tail_out['Hit@10'], head_out['Hit@10']])
+
+    val_mrr = mrr.mean().item()
+    performance = {'MR': mr, 'MRR': mrr, 'Hit@1': hit1, 'Hit@3': hit3, 'Hit@10': hit10}
+    performance.loc['mean ranking'] = performance.mean(axis=0)
+    for hit in ['Hit@1', 'Hit@3', 'Hit@10']:
+        if hit in list(performance.columns):
+            performance[hit] = performance[hit].apply(lambda x: '%.2f%%' % (x * 100))
+    return performance

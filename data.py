@@ -16,7 +16,6 @@ def batchify(output_dict, key, return_list=False):
     return torch.stack(tensor_out, dim=0)
 
 
-
 class KG_dataset(Dataset):
     def __init__(self, configs, tokenizer):
         folder = 'data/processed/{dataset_name}'.format(dataset_name=configs.dataset_name)
@@ -82,30 +81,30 @@ class KG_dataset(Dataset):
                 for related_triple in related_triples:
                     input_sequence = input_sequence + ' <extra_id_0> ' + self.entityid2name[related_triple[0]] + ' | ' + self.relationid2name[related_triple[2]] + ' | ' + self.entityid2name[related_triple[1]]
             input_sequence += ' <extra_id_0> ' + description
-            input_sequence += ' <extra_id_0> ' + head_name + ' | ' + rel_name
+            input_sequence += ' <extra_id_0> predict tail ' + head_name + ' | ' + rel_name
             target_sequence = tail_name
         if mode == 'head':
             if len(related_triples) > 0:
                 for related_triple in related_triples:
                     input_sequence = input_sequence + ' <extra_id_0> ' + self.entityid2name[related_triple[1]] + ' | ' + self.relationid2name[related_triple[2]] + ' | ' + self.entityid2name[related_triple[0]]
             input_sequence += ' <extra_id_0> ' + description
-            input_sequence += ' <extra_id_0> ' + tail_name + ' | ' + rel_name
+            input_sequence += ' <extra_id_0> predict head ' + tail_name + ' | ' + rel_name
             target_sequence = head_name
         
         tokenized_input_sequence = self.tokenizer(input_sequence, max_length=self.input_max_length, truncation=True, padding='max_length')
         source_ids = tokenized_input_sequence.input_ids
         source_mask = tokenized_input_sequence.attention_mask
-        tokenized_output_sequence = self.tokenizer(target_sequence, max_length=self.target_max_length, truncation=True, padding='max_length')
+        tokenized_target_sequence = self.tokenizer(target_sequence, max_length=self.target_max_length, truncation=True, padding='max_length')
         source_ids = tokenized_input_sequence.input_ids
-        target_ids = tokenized_output_sequence.input_ids
+        target_ids = tokenized_target_sequence.input_ids
         target_ids[target_ids==0] = -100
-        target_mask = tokenized_output_sequence.attention_mask
+        target_mask = tokenized_target_sequence.attention_mask
         out = {
             'source_ids': source_ids,
             'source_mask': source_mask,
             'target_ids': target_ids,
             'target_mask': target_mask,
-            'train_triple': [head_id, tail_id, rel_id],
+            'train_triple_id': [head_id, tail_id, rel_id],
         }
         return out
 
@@ -118,5 +117,123 @@ class KG_dataset(Dataset):
         batched_data['source_mask'] = batchify(out, 'source_mask')
         batched_data['target_ids'] = batchify(out, 'target_ids')
         batched_data['target_mask'] = batchify(out, 'target_mask')
-        batched_data['train_triple'] = batchify(out, 'train_triple', return_list=True)
+        batched_data['train_triple_id'] = batchify(out, 'train_triple_id', return_list=True)
+        return batched_data
+
+class KG_dataset_val_for_tail(Dataset):
+    def __init__(self, configs, tokenizer, is_val=True):
+        folder = 'data/processed/{dataset_name}'.format(dataset_name=configs.dataset_name)
+        if is_val:
+            # validation mode
+            self.triples_id = read(folder, 'valid2id.txt')
+        else:
+            # test mode
+            self.triples_id = read(folder, 'test2id.txt')
+        self.entityid2name = read_file(folder, 'entityid2name.txt', mode=None)
+        self.relationid2name = read_file(folder, 'relationid2name.txt', mode=None)
+        self.tokenizer = tokenizer
+        self.input_max_length_for_val = configs.input_max_length_for_val
+        self.target_max_length = configs.target_max_length
+        self.tokenized_entities = tokenizer(self.entityid2name, padding='max_length', truncation=True, max_length=configs.target_max_length, return_tensors='pt')
+        self.entity_string_to_id = dict(zip(self.entityid2name, torch.arange(len(self.entityid2name)).tolist()))
+
+    def __getitem__(self, index):
+        triple = self.triples_id[index]
+        head_id, tail_id, rel_id = triple
+        head_name = self.entityid2name[head_id]
+        rel_name = self.relationid2name[rel_id]
+        tail_name = self.entityid2name[tail_id]
+        input_sequence = ""
+        target_sequence = ""
+
+        input_sequence += 'predict tail ' + head_name + ' | ' + rel_name
+        target_sequence = tail_name
+        tokenized_input_sequence = self.tokenizer(input_sequence, max_length=self.input_max_length_for_val, truncation=True, padding='max_length')
+        source_ids = tokenized_input_sequence.input_ids
+        source_mask = tokenized_input_sequence.attention_mask
+        tokenized_target_sequence = self.tokenizer(target_sequence, max_length=self.target_max_length, truncation=True, padding='max_length')
+        target_ids = tokenized_target_sequence.input_ids
+        target_mask = tokenized_target_sequence.attention_mask
+        out = {
+            'source_ids': source_ids,
+            'source_mask': source_mask,
+            'target_ids': target_ids,
+            'target_mask': target_mask,
+            'input_sequence': input_sequence,
+            'label_sequence': target_sequence,
+            'triple_id': [head_id, tail_id, rel_id],
+        }
+        return out
+    
+    def __len__(self):
+        return len(self.triples_id)
+    
+    def _collate_fn(self, out):
+        batched_data = {}
+        batched_data['source_ids'] = batchify(out, 'source_ids')
+        batched_data['source_mask'] = batchify(out, 'source_mask')
+        batched_data['target_ids'] = batchify(out, 'target_ids')
+        batched_data['target_mask'] = batchify(out, 'target_mask')
+        batched_data['input_sequence'] = batchify(out, 'input_sequence', return_list=True)
+        batched_data['label_sequence'] = batchify(out, 'label_sequence', return_list=True)
+        batched_data['triple_id'] = batchify(out, 'triple_id', return_list=True)
+        return batched_data
+
+class KG_dataset_val_for_head(Dataset):
+    def __init__(self, configs, tokenizer, is_val=True):
+        folder = 'data/processed/{dataset_name}'.format(dataset_name=configs.dataset_name)
+        if is_val:
+            # validation mode
+            self.triples_id = read(folder, 'valid2id.txt')
+        else:
+            # test mode
+            self.triples_id = read(folder, 'test2id.txt')
+        self.entityid2name = read_file(folder, 'entityid2name.txt', mode=None)
+        self.relationid2name = read_file(folder, 'relationid2name.txt', mode=None)
+        self.tokenizer = tokenizer
+        self.input_max_length_for_val = configs.input_max_length_for_val
+        self.target_max_length = configs.target_max_length
+        self.tokenized_entities = tokenizer(self.entityid2name, padding='max_length', truncation=True, max_length=configs.target_max_length, return_tensors='pt')
+        self.entity_string_to_id = dict(zip(self.entityid2name, torch.arange(len(self.entityid2name)).tolist()))
+
+    def __getitem__(self, index):
+        triple = self.triples_id[index]
+        head_id, tail_id, rel_id = triple
+        head_name = self.entityid2name[head_id]
+        rel_name = self.relationid2name[rel_id]
+        tail_name = self.entityid2name[tail_id]
+        input_sequence = ""
+        target_sequence = ""
+
+        input_sequence += 'predict head ' + head_name + ' | ' + rel_name
+        target_sequence = head_name
+        tokenized_input_sequence = self.tokenizer(input_sequence, max_length=self.input_max_length_for_val, truncation=True, padding='max_length')
+        source_ids = tokenized_input_sequence.input_ids
+        source_mask = tokenized_input_sequence.attention_mask
+        tokenized_target_sequence = self.tokenizer(target_sequence, max_length=self.target_max_length, truncation=True, padding='max_length')
+        target_ids = tokenized_target_sequence.input_ids
+        target_mask = tokenized_target_sequence.attention_mask
+        out = {
+            'source_ids': source_ids,
+            'source_mask': source_mask,
+            'target_ids': target_ids,
+            'target_mask': target_mask,
+            'input_sequence': input_sequence,
+            'label_sequence': target_sequence,
+            'triple_id': [head_id, tail_id, rel_id],
+        }
+        return out
+    
+    def __len__(self):
+        return len(self.triples_id)
+    
+    def _collate_fn(self, out):
+        batched_data = {}
+        batched_data['source_ids'] = batchify(out, 'source_ids')
+        batched_data['source_mask'] = batchify(out, 'source_mask')
+        batched_data['target_ids'] = batchify(out, 'target_ids')
+        batched_data['target_mask'] = batchify(out, 'target_mask')
+        batched_data['input_sequence'] = batchify(out, 'input_sequence', return_list=True)
+        batched_data['label_sequence'] = batchify(out, 'label_sequence', return_list=True)
+        batched_data['triple_id'] = batchify(out, 'triple_id', return_list=True)
         return batched_data
