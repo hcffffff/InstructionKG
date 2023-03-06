@@ -62,25 +62,15 @@ def eval(configs, device, model, tokenizer, tail_dataset, tail_dataloader, head_
                             rank += 1
                 else:
                     ranks.append(random.randint(configs.num_beams+1, len(tail_dataset.entityid2name)))
-            split_ranks.append(ranks)
+            split_ranks.extend(ranks)
         both_ranks[h_or_t] = split_ranks
 
     pred_tail_out, pred_head_out = both_ranks['tail'], both_ranks['head']
-    print(len(pred_tail_out), len(pred_head_out))
+    # print(len(pred_tail_out), len(pred_head_out))
+    # print(pred_tail_out)
+    # print(pred_head_out)
     perf = get_performance(pred_tail_out, pred_head_out)
     print(perf)
-    # print("MR", )
-    # print("MRR", )
-    # print("Hits@1", )
-    # print("Hits@3", )
-    # print("Hits@10", )
-    # metrics = {
-    #     "MR": ,
-    #     "MRR": ,
-    #     "Hits@1": ,
-    #     "Hits@3": ,
-    #     "Hits@10": 
-    # }
     return perf
 
 

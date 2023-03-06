@@ -1,5 +1,6 @@
 model/pretrained_model
 data/processed
 data/raw
+checkpoint
 
 __pycache__

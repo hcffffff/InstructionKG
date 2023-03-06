@@ -20,13 +20,15 @@ def save_checkpoint(accelerator, epoch, model, optimizer, val_metrics):
     if configs.model_save_path == '':
         print('MODEL SAVE ERROR, NO DIRECTORY.')
         return
-    file_name = 'epoch-{:.2}-mrr-{:.6}.pt'.format(epoch, val_metrics['MRR'])
+    print(val_metrics)
+    file_name = 'epoch-{}-mrr-{:.6}.pt'.format(epoch, val_metrics.loc['mean ranking','MRR'])
     checkpoint = {
         'model': model.state_dict(),
         'optimizer': optimizer.state_dict(),
         'val_metrics': val_metrics
     }
     accelerator.save(checkpoint, os.path.join(configs.model_save_path, file_name))
+    print("Model successfully saved at {}".format(file_name))
     return
 
 
@@ -72,6 +74,7 @@ def train():
                 best_val_mrr = val_metrics['MRR']
                 save_checkpoint(accelerator, epoch+1, model, optimizer, val_metrics)
     test()
+    print("Finish training.")
     return
 
 
@@ -89,7 +92,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-dataset_name', default='FB15k-237', help='Dataset to use, default: FB15k-237')
     parser.add_argument('-model_save_path', default='checkpoint/', help='Model save path.')
-    parser.add_argument('-model', default='', help='Existing model used for testing.')
+    parser.add_argument('-model', default='', help='Existing model path used for testing.')
     parser.add_argument('-pretrained_model', default='model/pretrained_model/t5-base', help='Pretrained Model Name')
     parser.add_argument('-batch_size', default=16, type=int, help='Training batch size.')
     parser.add_argument('-val_batch_size', default=4, type=int, help='Validation/Testing batch size.')
