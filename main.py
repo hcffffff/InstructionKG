@@ -13,8 +13,8 @@ import torch.nn.functional as F
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 from accelerate import Accelerator
 
-from data import KG_dataset, KG_dataset_val_for_tail, KG_dataset_val_for_head
-from validation import val, test
+from data import KG_dataset, KG_dataset_val
+from eval import eval, test
 
 def save_checkpoint(accelerator, epoch, model, optimizer, val_metrics):
     if configs.model_save_path == '':
@@ -39,34 +39,35 @@ def train():
     tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
     KG_train_dataset = KG_dataset(configs, tokenizer)
     KG_train_dataLoader = DataLoader(KG_train_dataset, batch_size=configs.batch_size, collate_fn=KG_train_dataset._collate_fn, shuffle=True)
-    KG_val_tail_dataset = KG_dataset_val_for_tail(configs, tokenizer)
-    KG_val_head_dataset = KG_dataset_val_for_head(configs, tokenizer)
+    KG_val_tail_dataset = KG_dataset_val(configs, tokenizer, h_or_t='tail')
+    KG_val_head_dataset = KG_dataset_val(configs, tokenizer, h_or_t='head')
     KG_val_tail_dataLoader = DataLoader(KG_val_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_val_tail_dataset._collate_fn, shuffle=False)
     KG_val_head_dataLoader = DataLoader(KG_val_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_val_head_dataset._collate_fn, shuffle=False)
     model, optimizer, train_data, val_tail_data, val_head_data = accelerator.prepare(model, optimizer, KG_train_dataLoader, KG_val_tail_dataLoader, KG_val_head_dataLoader)
+
     best_val_mrr = 0.0
     for epoch in range(configs.epochs):
         print("Epoch # {}".format(epoch))
         model.train()
         training_loss = 0.0
-        for batch in tqdm(train_data):
-            input_ids = batch['source_ids'].to(device)
-            input_mask = batch['source_mask'].to(device)
-            target_ids = batch['target_ids'].to(device)
-            target_mask = batch['target_mask'].to(device)
-            train_triples_id = batch['train_triple_id']
-            optimizer.zero_grad()
-            outputs = model(input_ids=input_ids, attention_mask=input_mask, labels=target_ids)
-            loss = outputs.loss
-            training_loss += loss.item()
-            accelerator.backward(loss)
-            optimizer.step()
-        accelerator.print("epoch {} training loss {:.8}.".format(epoch, training_loss))
+        # for batch in tqdm(train_data):
+        #     input_ids = batch['source_ids'].to(device)
+        #     input_mask = batch['source_mask'].to(device)
+        #     target_ids = batch['target_ids'].to(device)
+        #     target_mask = batch['target_mask'].to(device)
+        #     train_triples_id = batch['train_triple_id']
+        #     optimizer.zero_grad()
+        #     outputs = model(input_ids=input_ids, attention_mask=input_mask, labels=target_ids)
+        #     loss = outputs.loss
+        #     training_loss += loss.item()
+        #     accelerator.backward(loss)
+        #     optimizer.step()
+        # accelerator.print("epoch {} training loss {:.8}.".format(epoch, training_loss))
         if epoch+1 == configs.epochs:
-            val_metrics = val(device, model, val_tail_data, val_head_data)
+            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, val_tail_data, KG_val_head_dataset, val_head_data)
             save_checkpoint(accelerator, epoch+1, model, optimizer, val_metrics)
         elif epoch+1 > configs.skip_n_epochs_val_training:
-            val_metrics = val(device, model, val_tail_data, val_head_data)
+            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, val_tail_data, KG_val_head_dataset, val_head_data)
             if val_metrics['MRR'] > best_val_mrr:
                 best_val_mrr = val_metrics['MRR']
                 save_checkpoint(accelerator, epoch+1, model, optimizer, val_metrics)
@@ -92,9 +93,11 @@ if __name__ == '__main__':
     parser.add_argument('-pretrained_model', default='model/pretrained_model/t5-base', help='Pretrained Model Name')
     parser.add_argument('-batch_size', default=16, type=int, help='Training batch size.')
     parser.add_argument('-val_batch_size', default=4, type=int, help='Validation/Testing batch size.')
+    parser.add_argument('-num_beams', default=40, type=int, help='Number of samples from beam search')
     parser.add_argument('-epochs', default=20, type=int, help='Training epochs.')
     parser.add_argument('-learning_rate', default=0.001, type=float, help='Learning rate in training.')
 
+    parser.add_argument('-use_prefix_search', action='store_true', help='Whether to use prefix search in validation process.')
     parser.add_argument('-use_description', action='store_true', help='Whether to use description')
     parser.add_argument('-use_entity_connection', action='store_true', help='Whether to use entity connection')
     parser.add_argument('-max_relation_num', default=4, type=int, help='Max related triples used in training')

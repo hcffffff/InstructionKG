@@ -8,5 +8,6 @@ accelerate launch main.py -dataset_name 'FB15k-237N' \
                           -max_relation_num 4 \
                           -max_description_length 128 \
                           -input_max_length 256 \
+                          -input_max_length_for_val 64 \
                           -target_max_length 16 \
                           -skip_n_epochs_val_training 0 \

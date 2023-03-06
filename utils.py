@@ -2,6 +2,7 @@ import os
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+from collections import defaultdict as ddict
 
 
 def read(dataset_path, filename):
@@ -38,6 +39,14 @@ def read_file(dataset_path, filename, mode='descrip'):
         id2name.append(name)
     return id2name
 
+def get_ground_truth(triples):
+    tail_ground_truth, head_ground_truth = ddict(list), ddict(list)
+    for triple in triples:
+        head, tail, rel = triple
+        tail_ground_truth[(head, rel)].append(tail)
+        head_ground_truth[(tail, rel)].append(head)
+    return tail_ground_truth, head_ground_truth
+
 
 def _get_performance(ranks):
     ranks = np.array(ranks, dtype=np.float)
@@ -58,8 +67,8 @@ def get_performance(tail_ranks, head_ranks):
     hit3 = np.array([tail_out['Hit@3'], head_out['Hit@3']])
     hit10 = np.array([tail_out['Hit@10'], head_out['Hit@10']])
 
-    val_mrr = mrr.mean().item()
     performance = {'MR': mr, 'MRR': mrr, 'Hit@1': hit1, 'Hit@3': hit3, 'Hit@10': hit10}
+    performance = pd.DataFrame(performance, index=['tail ranking', 'head ranking'])
     performance.loc['mean ranking'] = performance.mean(axis=0)
     for hit in ['Hit@1', 'Hit@3', 'Hit@10']:
         if hit in list(performance.columns):

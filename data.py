@@ -2,7 +2,7 @@ import os
 import torch
 import random
 from torch.utils.data import Dataset, DataLoader
-from utils import read, read_file
+from utils import read, read_file, get_ground_truth
 
 def batchify(output_dict, key, return_list=False):
     '''
@@ -120,8 +120,8 @@ class KG_dataset(Dataset):
         batched_data['train_triple_id'] = batchify(out, 'train_triple_id', return_list=True)
         return batched_data
 
-class KG_dataset_val_for_tail(Dataset):
-    def __init__(self, configs, tokenizer, is_val=True):
+class KG_dataset_val(Dataset):
+    def __init__(self, configs, tokenizer, is_val=True, h_or_t='tail'):
         folder = 'data/processed/{dataset_name}'.format(dataset_name=configs.dataset_name)
         if is_val:
             # validation mode
@@ -136,6 +136,9 @@ class KG_dataset_val_for_tail(Dataset):
         self.target_max_length = configs.target_max_length
         self.tokenized_entities = tokenizer(self.entityid2name, padding='max_length', truncation=True, max_length=configs.target_max_length, return_tensors='pt')
         self.entity_string_to_id = dict(zip(self.entityid2name, torch.arange(len(self.entityid2name)).tolist()))
+        self.h_or_t = h_or_t
+        self.triples_name = [[self.entityid2name[self.triples_id[i][0]], self.entityid2name[self.triples_id[i][1]], self.relationid2name[self.triples_id[i][2]]] for i in range(len(self.triples_id))]
+        self.tail_ground_truth, self.head_ground_truth = get_ground_truth(self.triples_name)
 
     def __getitem__(self, index):
         triple = self.triples_id[index]
@@ -146,8 +149,12 @@ class KG_dataset_val_for_tail(Dataset):
         input_sequence = ""
         target_sequence = ""
 
-        input_sequence += 'predict tail ' + head_name + ' | ' + rel_name
-        target_sequence = tail_name
+        if self.h_or_t == 'tail':
+            input_sequence += 'predict tail ' + head_name + ' | ' + rel_name
+            target_sequence = tail_name
+        else:
+            input_sequence += 'predict head ' + tail_name + ' | ' + rel_name
+            target_sequence = head_name
         tokenized_input_sequence = self.tokenizer(input_sequence, max_length=self.input_max_length_for_val, truncation=True, padding='max_length')
         source_ids = tokenized_input_sequence.input_ids
         source_mask = tokenized_input_sequence.attention_mask
@@ -162,6 +169,7 @@ class KG_dataset_val_for_tail(Dataset):
             'input_sequence': input_sequence,
             'label_sequence': target_sequence,
             'triple_id': [head_id, tail_id, rel_id],
+            'triple_name': [head_name, tail_name, rel_name]
         }
         return out
     
@@ -177,63 +185,6 @@ class KG_dataset_val_for_tail(Dataset):
         batched_data['input_sequence'] = batchify(out, 'input_sequence', return_list=True)
         batched_data['label_sequence'] = batchify(out, 'label_sequence', return_list=True)
         batched_data['triple_id'] = batchify(out, 'triple_id', return_list=True)
+        batched_data['triple_name'] = batchify(out, 'triple_name', return_list=True)
         return batched_data
 
-class KG_dataset_val_for_head(Dataset):
-    def __init__(self, configs, tokenizer, is_val=True):
-        folder = 'data/processed/{dataset_name}'.format(dataset_name=configs.dataset_name)
-        if is_val:
-            # validation mode
-            self.triples_id = read(folder, 'valid2id.txt')
-        else:
-            # test mode
-            self.triples_id = read(folder, 'test2id.txt')
-        self.entityid2name = read_file(folder, 'entityid2name.txt', mode=None)
-        self.relationid2name = read_file(folder, 'relationid2name.txt', mode=None)
-        self.tokenizer = tokenizer
-        self.input_max_length_for_val = configs.input_max_length_for_val
-        self.target_max_length = configs.target_max_length
-        self.tokenized_entities = tokenizer(self.entityid2name, padding='max_length', truncation=True, max_length=configs.target_max_length, return_tensors='pt')
-        self.entity_string_to_id = dict(zip(self.entityid2name, torch.arange(len(self.entityid2name)).tolist()))
-
-    def __getitem__(self, index):
-        triple = self.triples_id[index]
-        head_id, tail_id, rel_id = triple
-        head_name = self.entityid2name[head_id]
-        rel_name = self.relationid2name[rel_id]
-        tail_name = self.entityid2name[tail_id]
-        input_sequence = ""
-        target_sequence = ""
-
-        input_sequence += 'predict head ' + head_name + ' | ' + rel_name
-        target_sequence = head_name
-        tokenized_input_sequence = self.tokenizer(input_sequence, max_length=self.input_max_length_for_val, truncation=True, padding='max_length')
-        source_ids = tokenized_input_sequence.input_ids
-        source_mask = tokenized_input_sequence.attention_mask
-        tokenized_target_sequence = self.tokenizer(target_sequence, max_length=self.target_max_length, truncation=True, padding='max_length')
-        target_ids = tokenized_target_sequence.input_ids
-        target_mask = tokenized_target_sequence.attention_mask
-        out = {
-            'source_ids': source_ids,
-            'source_mask': source_mask,
-            'target_ids': target_ids,
-            'target_mask': target_mask,
-            'input_sequence': input_sequence,
-            'label_sequence': target_sequence,
-            'triple_id': [head_id, tail_id, rel_id],
-        }
-        return out
-    
-    def __len__(self):
-        return len(self.triples_id)
-    
-    def _collate_fn(self, out):
-        batched_data = {}
-        batched_data['source_ids'] = batchify(out, 'source_ids')
-        batched_data['source_mask'] = batchify(out, 'source_mask')
-        batched_data['target_ids'] = batchify(out, 'target_ids')
-        batched_data['target_mask'] = batchify(out, 'target_mask')
-        batched_data['input_sequence'] = batchify(out, 'input_sequence', return_list=True)
-        batched_data['label_sequence'] = batchify(out, 'label_sequence', return_list=True)
-        batched_data['triple_id'] = batchify(out, 'triple_id', return_list=True)
-        return batched_data
