@@ -52,26 +52,26 @@ def train():
         print("Epoch # {}".format(epoch))
         model.train()
         training_loss = 0.0
-        # for batch in tqdm(train_data):
-        #     input_ids = batch['source_ids'].to(device)
-        #     input_mask = batch['source_mask'].to(device)
-        #     target_ids = batch['target_ids'].to(device)
-        #     target_mask = batch['target_mask'].to(device)
-        #     train_triples_id = batch['train_triple_id']
-        #     optimizer.zero_grad()
-        #     outputs = model(input_ids=input_ids, attention_mask=input_mask, labels=target_ids)
-        #     loss = outputs.loss
-        #     training_loss += loss.item()
-        #     accelerator.backward(loss)
-        #     optimizer.step()
-        # accelerator.print("epoch {} training loss {:.8}.".format(epoch, training_loss))
+        for batch in tqdm(train_data):
+            input_ids = batch['source_ids'].to(device)
+            input_mask = batch['source_mask'].to(device)
+            target_ids = batch['target_ids'].to(device)
+            target_mask = batch['target_mask'].to(device)
+            train_triples_id = batch['train_triple_id']
+            optimizer.zero_grad()
+            outputs = model(input_ids=input_ids, attention_mask=input_mask, labels=target_ids)
+            loss = outputs.loss
+            training_loss += loss.item()
+            accelerator.backward(loss)
+            optimizer.step()
+        accelerator.print("epoch {} training loss {:.8}.".format(epoch, training_loss))
         if epoch+1 == configs.epochs:
             val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, val_tail_data, KG_val_head_dataset, val_head_data)
             save_checkpoint(accelerator, epoch+1, model, optimizer, val_metrics)
         elif epoch+1 > configs.skip_n_epochs_val_training:
             val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, val_tail_data, KG_val_head_dataset, val_head_data)
-            if val_metrics['MRR'] > best_val_mrr:
-                best_val_mrr = val_metrics['MRR']
+            if val_metrics.loc['mean ranking','MRR'] > best_val_mrr:
+                best_val_mrr = val_metrics.loc['mean ranking','MRR']
                 save_checkpoint(accelerator, epoch+1, model, optimizer, val_metrics)
     test()
     print("Finish training.")
