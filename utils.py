@@ -1,8 +1,11 @@
 import os
 from tqdm import tqdm
+import scipy.sparse as sp
 import numpy as np
 import pandas as pd
 from collections import defaultdict as ddict
+from collections import Counter
+import pygtrie
 
 
 def read(dataset_path, filename):
@@ -46,6 +49,63 @@ def get_ground_truth(triples):
         tail_ground_truth[(head, rel)].append(tail)
         head_ground_truth[(tail, rel)].append(head)
     return tail_ground_truth, head_ground_truth
+
+def get_next_token_dict(ent_token_ids_in_trie, prefix_trie, entity_num, tokenizer):
+    '''
+    next_token_dict: 大小远远大于entity name数量
+        简单来说是从所有entity name生成独特的前缀表达，如果前缀存在，input_id往后遍历1位，直到这是一个独特的前缀
+        然后以这个前缀为开头，以字典形式记录后一位，然后生成另一个字典项，键为这个前缀加后一位，值为再下一位，循环此操作，直到这个ent_token_ids被遍历完
+        遍历数据集中所有的token(+description)生成next_token_dict
+    neg_candidate_mask: 大小为entity name数量
+        暂时不知道怎么用 TODO
+    32099 - <extra_id_0>; 32098 - <extra_id_1>
+    '''
+    neg_candidate_mask = []
+    next_token_dict = {(): [32099] * entity_num}
+    for ent_id in tqdm(range(entity_num)):
+        rows, cols = [0], [32099]
+        input_ids = ent_token_ids_in_trie[ent_id]
+        for pos_id in range(1, len(input_ids)):
+            cur_input_ids = input_ids[:pos_id]
+            if tuple(cur_input_ids) in next_token_dict:
+                cur_tokens = next_token_dict[tuple(cur_input_ids)]
+            else:
+                seqs = prefix_trie.keys(prefix=cur_input_ids)
+                cur_tokens = [seq[pos_id] for seq in seqs]
+                next_token_dict[tuple(cur_input_ids)] = Counter(cur_tokens)
+            cur_tokens = list(set(cur_tokens))
+            rows.extend([pos_id] * len(cur_tokens))
+            cols.extend(cur_tokens)
+        sparse_mask = sp.coo_matrix(([1] * len(rows), (rows, cols)), shape=(len(input_ids), tokenizer.vocab_size), dtype=np.long)
+        neg_candidate_mask.append(sparse_mask)
+    return neg_candidate_mask, next_token_dict
+
+
+def constructPrefixTrie(configs, entity_name_list_orig, tokenizer):
+    '''
+    构建entity词典，使得模型输出限定于entity表
+    '''
+    ent_token_ids_in_trie = tokenizer(['<extra_id_0>' + ent_name + '<extra_id_1>' for ent_name in entity_name_list_orig], max_length=configs.target_max_length, truncation=True).input_ids
+
+    # construct prefix trie
+    prefix_trie = pygtrie.Trie()
+    for input_ids in ent_token_ids_in_trie:
+        prefix_trie[input_ids] = True
+        
+    neg_candidate_mask, next_token_dict = get_next_token_dict(ent_token_ids_in_trie, prefix_trie, len(entity_name_list_orig), tokenizer)
+    # entity_name_list = tokenizer.batch_decode([tokens for tokens in ent_token_ids_in_trie])
+    # name_list_dict = {
+    #     'original_ent_name_list': entity_name_list_orig,
+    #     'ent_name_list': entity_name_list,
+    #     'rel_name_list': rel_name_list,
+    # }
+    prefix_trie_dict = {
+        'prefix_trie': prefix_trie,
+        'ent_token_ids_in_trie': ent_token_ids_in_trie,
+        'neg_candidate_mask': neg_candidate_mask,
+        'next_token_dict': next_token_dict
+    }
+    return prefix_trie_dict
 
 
 def _get_performance(ranks):

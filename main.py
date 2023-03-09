@@ -14,7 +14,7 @@ from transformers import T5Tokenizer, T5ForConditionalGeneration
 from accelerate import Accelerator
 
 from data import KG_dataset, KG_dataset_val
-from eval import eval, test
+from eval import eval
 
 def save_checkpoint(accelerator, epoch, model, optimizer, val_metrics):
     if configs.model_save_path == '':
@@ -35,7 +35,7 @@ def save_checkpoint(accelerator, epoch, model, optimizer, val_metrics):
 def train():
     accelerator = Accelerator()
     device = accelerator.device
-    print("using device: ", device)
+    print("Training using device: ", device)
     model = T5ForConditionalGeneration.from_pretrained(configs.pretrained_model).to(device)
     optimizer = AdamW(model.parameters(), lr=configs.learning_rate)
     tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
@@ -45,26 +45,30 @@ def train():
     KG_val_head_dataset = KG_dataset_val(configs, tokenizer, h_or_t='head')
     KG_val_tail_dataLoader = DataLoader(KG_val_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_val_tail_dataset._collate_fn, shuffle=False)
     KG_val_head_dataLoader = DataLoader(KG_val_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_val_head_dataset._collate_fn, shuffle=False)
-    model, optimizer, train_data, val_tail_data, val_head_data = accelerator.prepare(model, optimizer, KG_train_dataLoader, KG_val_tail_dataLoader, KG_val_head_dataLoader)
+    KG_test_tail_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='tail')
+    KG_test_head_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='head')
+    KG_test_tail_dataLoader = DataLoader(KG_test_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_tail_dataset._collate_fn, shuffle=False)
+    KG_test_head_dataLoader = DataLoader(KG_test_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_head_dataset._collate_fn, shuffle=False)
+    model, optimizer, train_data, val_tail_data, val_head_data, test_tail_data, test_head_data = accelerator.prepare(model, optimizer, KG_train_dataLoader, KG_val_tail_dataLoader, KG_val_head_dataLoader, KG_test_tail_dataLoader, KG_test_head_dataLoader)
 
     best_val_mrr = 0.0
     for epoch in range(configs.epochs):
         print("Epoch # {}".format(epoch))
         model.train()
-        training_loss = 0.0
-        for batch in tqdm(train_data):
-            input_ids = batch['source_ids'].to(device)
-            input_mask = batch['source_mask'].to(device)
-            target_ids = batch['target_ids'].to(device)
-            target_mask = batch['target_mask'].to(device)
-            train_triples_id = batch['train_triple_id']
-            optimizer.zero_grad()
-            outputs = model(input_ids=input_ids, attention_mask=input_mask, labels=target_ids)
-            loss = outputs.loss
-            training_loss += loss.item()
-            accelerator.backward(loss)
-            optimizer.step()
-        accelerator.print("epoch {} training loss {:.8}.".format(epoch, training_loss))
+        # training_loss = 0.0
+        # for batch in tqdm(train_data, desc="Epoch: #{}".format(epoch)):
+        #     input_ids = batch['source_ids'].to(device)
+        #     input_mask = batch['source_mask'].to(device)
+        #     target_ids = batch['target_ids'].to(device)
+        #     target_mask = batch['target_mask'].to(device)
+        #     train_triples_id = batch['train_triple_id']
+        #     optimizer.zero_grad()
+        #     outputs = model(input_ids=input_ids, attention_mask=input_mask, labels=target_ids)
+        #     loss = outputs.loss
+        #     training_loss += loss.item()
+        #     accelerator.backward(loss)
+        #     optimizer.step()
+        # accelerator.print("epoch {} training loss {:.8}.".format(epoch, training_loss))
         if epoch+1 == configs.epochs:
             val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, val_tail_data, KG_val_head_dataset, val_head_data)
             save_checkpoint(accelerator, epoch+1, model, optimizer, val_metrics)
@@ -73,7 +77,7 @@ def train():
             if val_metrics.loc['mean ranking','MRR'] > best_val_mrr:
                 best_val_mrr = val_metrics.loc['mean ranking','MRR']
                 save_checkpoint(accelerator, epoch+1, model, optimizer, val_metrics)
-    test()
+    test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, test_tail_data, KG_test_head_dataset, test_head_data, mode='test')
     print("Finish training.")
     return
 
@@ -82,7 +86,18 @@ def main():
     if configs.model == '':
         train()
     else:
-        test()
+        accelerator = Accelerator()
+        device = accelerator.device
+        print("Testing using device: ", device)
+        tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
+        model = torch.load(configs.model)
+        KG_test_tail_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='tail')
+        KG_test_head_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='head')
+        KG_test_tail_dataLoader = DataLoader(KG_test_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_tail_dataset._collate_fn, shuffle=False)
+        KG_test_head_dataLoader = DataLoader(KG_test_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_head_dataset._collate_fn, shuffle=False)
+        model, test_tail_data, test_head_data = accelerator.prepare(model, KG_test_tail_dataLoader, KG_test_head_dataLoader)
+        test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, test_tail_data, KG_test_head_dataset, test_head_data, mode='test')
+        print("Finish training.")
     return
 
 
@@ -114,7 +129,7 @@ if __name__ == '__main__':
     print(configs)
     configs.model_save_path = os.path.join(configs.model_save_path, configs.dataset_name + '-' + str(datetime.now()))
     if configs.model == '':
-        print('creating model save dir.')
+        print('No existing model given. Training mode is on. Creating model save dir in {}'.format(configs.model_save_path))
         os.makedirs(configs.model_save_path)
     main()
     # python main.py -dataset_name -batch_size 16 -use_description -use_entity_connection

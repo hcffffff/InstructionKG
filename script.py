@@ -1,4 +1,4 @@
-alist = [1,2,3,4,5,6,7,8,9,10]
+import torch
 
-for key, value in alist.items():
-    print(key, value)
+model = torch.load('./checkpoint/SOTA/FB15k-237N-epoch=035-val_mrr=0.3489.ckpt')
+print(model.state_dict())

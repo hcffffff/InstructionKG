@@ -129,6 +129,7 @@ class KG_dataset_val(Dataset):
         else:
             # test mode
             self.triples_id = read(folder, 'test2id.txt')
+        self.all_triples_id = read(folder, 'train2id.txt') + read(folder, 'valid2id.txt') + read(folder, 'test2id.txt')
         self.entityid2name = read_file(folder, 'entityid2name.txt', mode=None)
         self.relationid2name = read_file(folder, 'relationid2name.txt', mode=None)
         self.tokenizer = tokenizer
@@ -139,6 +140,7 @@ class KG_dataset_val(Dataset):
         self.h_or_t = h_or_t
         self.triples_name = [[self.entityid2name[self.triples_id[i][0]], self.entityid2name[self.triples_id[i][1]], self.relationid2name[self.triples_id[i][2]]] for i in range(len(self.triples_id))]
         self.tail_ground_truth, self.head_ground_truth = get_ground_truth(self.triples_name)
+        self.tail_ground_truth_id_all, self.head_ground_truth_id_all = get_ground_truth(self.all_triples_id)
 
     def __getitem__(self, index):
         triple = self.triples_id[index]
