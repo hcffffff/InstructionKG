@@ -20,7 +20,6 @@ def save_checkpoint(accelerator, epoch, model, optimizer, val_metrics):
     if configs.model_save_path == '':
         print('MODEL SAVE ERROR, NO DIRECTORY.')
         return
-    print(val_metrics)
     file_name = 'epoch-{}-mrr-{:.6}.pt'.format(epoch, val_metrics.loc['mean ranking','MRR'])
     checkpoint = {
         'model': model.state_dict(),
@@ -39,16 +38,22 @@ def train():
     model = T5ForConditionalGeneration.from_pretrained(configs.pretrained_model).to(device)
     optimizer = AdamW(model.parameters(), lr=configs.learning_rate)
     tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
+    # 训练数据集
     KG_train_dataset = KG_dataset(configs, tokenizer)
     KG_train_dataLoader = DataLoader(KG_train_dataset, batch_size=configs.batch_size, collate_fn=KG_train_dataset._collate_fn, shuffle=True)
+    
+    # 验证数据集
     KG_val_tail_dataset = KG_dataset_val(configs, tokenizer, h_or_t='tail')
     KG_val_head_dataset = KG_dataset_val(configs, tokenizer, h_or_t='head')
     KG_val_tail_dataLoader = DataLoader(KG_val_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_val_tail_dataset._collate_fn, shuffle=False)
     KG_val_head_dataLoader = DataLoader(KG_val_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_val_head_dataset._collate_fn, shuffle=False)
+
+    # 测试数据集
     KG_test_tail_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='tail')
     KG_test_head_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='head')
     KG_test_tail_dataLoader = DataLoader(KG_test_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_tail_dataset._collate_fn, shuffle=False)
     KG_test_head_dataLoader = DataLoader(KG_test_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_head_dataset._collate_fn, shuffle=False)
+
     model, optimizer, train_data, val_tail_data, val_head_data, test_tail_data, test_head_data = accelerator.prepare(model, optimizer, KG_train_dataLoader, KG_val_tail_dataLoader, KG_val_head_dataLoader, KG_test_tail_dataLoader, KG_test_head_dataLoader)
 
     best_val_mrr = 0.0
