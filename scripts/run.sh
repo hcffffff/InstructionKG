@@ -7,10 +7,10 @@ existing_model=''
 current=`date "+%Y-%m-%d-%H-%M-%S"`
 out_file="./outlog/InstructKG-$dataset_name-$model_name-$current.log"
 
-accelerate launch main.py -dataset_name $dataset_name \
+nohup accelerate launch main.py -dataset_name $dataset_name \
                           -pretrained_model $pretrained_model \
                           -batch_size 16 \
-                          -epochs 1 \
+                          -epochs 15 \
                           -use_description \
                           -use_entity_connection \
                           -use_prefix_search \
@@ -19,4 +19,4 @@ accelerate launch main.py -dataset_name $dataset_name \
                           -input_max_length 256 \
                           -input_max_length_for_val 64 \
                           -target_max_length 32 \
-                          -skip_n_epochs_val_training 12
+                          -skip_n_epochs_val_training 12 > $out_file 2>&1 &
