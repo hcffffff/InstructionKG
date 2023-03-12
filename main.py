@@ -1,3 +1,4 @@
+#!/usr/bin/python -u
 import math
 import os
 import numpy as np
@@ -8,7 +9,7 @@ import argparse
 import warnings
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
-from torch.optim import AdamW
+from torch.optim import Adam
 import torch.nn.functional as F
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 from accelerate import Accelerator
@@ -16,27 +17,30 @@ from accelerate import Accelerator
 from data import KG_dataset, KG_dataset_val
 from eval import eval
 
-def save_checkpoint(accelerator, epoch, model, optimizer, val_metrics):
+def save_checkpoint(epoch, model, optimizer, val_metrics):
     if configs.model_save_path == '':
         print('MODEL SAVE ERROR, NO DIRECTORY.')
         return
+    if not os.path.exists(configs.model_save_path):
+        os.makedirs(configs.model_save_path)
     file_name = 'epoch-{}-mrr-{:.6}.pt'.format(epoch, val_metrics.loc['mean ranking','MRR'])
-    checkpoint = {
-        'model': model.state_dict(),
-        'optimizer': optimizer.state_dict(),
-        'val_metrics': val_metrics
-    }
-    accelerator.save(checkpoint, os.path.join(configs.model_save_path, file_name))
-    print("Model successfully saved at {}".format(file_name))
+    # checkpoint = {
+    #     'model': model.state_dict(),
+    #     'optimizer': optimizer.state_dict(),
+    #     'val_metrics': val_metrics
+    # }
+    torch.save(model.state_dict(), os.path.join(configs.model_save_path, file_name))
+    print("Model successfully saved at {}".format(os.path.join(configs.model_save_path, file_name)))
     return
 
 
 def train():
-    accelerator = Accelerator()
-    device = accelerator.device
+    # accelerator = Accelerator()
+    # device = accelerator.device
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Training using device: ", device)
     model = T5ForConditionalGeneration.from_pretrained(configs.pretrained_model).to(device)
-    optimizer = AdamW(model.parameters(), lr=configs.learning_rate)
+    optimizer = Adam(model.parameters(), lr=configs.learning_rate)
     tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
     # 训练数据集
     KG_train_dataset = KG_dataset(configs, tokenizer)
@@ -54,14 +58,15 @@ def train():
     KG_test_tail_dataLoader = DataLoader(KG_test_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_tail_dataset._collate_fn, shuffle=False)
     KG_test_head_dataLoader = DataLoader(KG_test_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_head_dataset._collate_fn, shuffle=False)
 
-    model, optimizer, train_data, val_tail_data, val_head_data, test_tail_data, test_head_data = accelerator.prepare(model, optimizer, KG_train_dataLoader, KG_val_tail_dataLoader, KG_val_head_dataLoader, KG_test_tail_dataLoader, KG_test_head_dataLoader)
+    # model, optimizer, train_data, val_tail_data, val_head_data, test_tail_data, test_head_data = accelerator.prepare(model, optimizer, KG_train_dataLoader, KG_val_tail_dataLoader, KG_val_head_dataLoader, KG_test_tail_dataLoader, KG_test_head_dataLoader)
 
     best_val_mrr = 0.0
+    print("================= Start  training =================")
     for epoch in range(configs.epochs):
         print("Epoch # {}".format(epoch))
         model.train()
         training_loss = 0.0
-        for batch in tqdm(train_data, desc="Epoch: #{}".format(epoch)):
+        for batch_idx, batch in enumerate(KG_train_dataLoader):
             input_ids = batch['source_ids'].to(device)
             input_mask = batch['source_mask'].to(device)
             target_ids = batch['target_ids'].to(device)
@@ -71,19 +76,22 @@ def train():
             outputs = model(input_ids=input_ids, attention_mask=input_mask, labels=target_ids)
             loss = outputs.loss
             training_loss += loss.item()
-            accelerator.backward(loss)
+            if batch_idx % 500 == 0:
+                print("Epoch {}, batch index {}, loss {}, total training loss {}.".format(epoch, batch_idx, loss, training_loss))
+            # accelerator.backward(loss)
+            loss.backward()
             optimizer.step()
-        accelerator.print("epoch {} training loss {:.8}.".format(epoch, training_loss))
+        print("epoch {} training loss {:.8}.".format(epoch, training_loss))
         if epoch+1 == configs.epochs:
-            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, val_tail_data, KG_val_head_dataset, val_head_data)
-            save_checkpoint(accelerator, epoch+1, model, optimizer, val_metrics)
+            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, KG_val_tail_dataLoader, KG_val_head_dataset, KG_val_head_dataLoader)
+            save_checkpoint(epoch+1, model, optimizer, val_metrics)
         elif epoch+1 > configs.skip_n_epochs_val_training:
-            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, val_tail_data, KG_val_head_dataset, val_head_data)
+            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, KG_val_tail_dataLoader, KG_val_head_dataset, KG_val_head_dataLoader)
             if val_metrics.loc['mean ranking','MRR'] > best_val_mrr:
                 best_val_mrr = val_metrics.loc['mean ranking','MRR']
-                save_checkpoint(accelerator, epoch+1, model, optimizer, val_metrics)
-    test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, test_tail_data, KG_test_head_dataset, test_head_data, mode='test')
-    print("Finish training.")
+                save_checkpoint(epoch+1, model, optimizer, val_metrics)
+    print("================= Finish training =================")
+    test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, KG_test_tail_dataLoader, KG_test_head_dataset, KG_test_head_dataLoader, mode='test')
     return
 
 
@@ -91,17 +99,18 @@ def main():
     if configs.model == '':
         train()
     else:
-        accelerator = Accelerator()
-        device = accelerator.device
+        # accelerator = Accelerator()
+        # device = accelerator.device
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print("Testing using device: ", device)
         tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
-        model = torch.load(configs.model)
+        model = torch.load(configs.model).to(device)
         KG_test_tail_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='tail')
         KG_test_head_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='head')
         KG_test_tail_dataLoader = DataLoader(KG_test_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_tail_dataset._collate_fn, shuffle=False)
         KG_test_head_dataLoader = DataLoader(KG_test_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_head_dataset._collate_fn, shuffle=False)
-        model, test_tail_data, test_head_data = accelerator.prepare(model, KG_test_tail_dataLoader, KG_test_head_dataLoader)
-        test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, test_tail_data, KG_test_head_dataset, test_head_data, mode='test')
+        # model, test_tail_data, test_head_data = accelerator.prepare(model, KG_test_tail_dataLoader, KG_test_head_dataLoader)
+        test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, KG_test_tail_dataLoader, KG_test_head_dataset, KG_test_head_dataLoader, mode='test')
         print("Finish training.")
     return
 
@@ -134,7 +143,7 @@ if __name__ == '__main__':
     print(configs)
     configs.model_save_path = os.path.join(configs.model_save_path, configs.dataset_name + '-' + str(datetime.now()))
     if configs.model == '':
-        print('No existing model given. Training mode is on. Creating model save dir in {}'.format(configs.model_save_path))
-        os.makedirs(configs.model_save_path)
+        print('No existing model given. Training mode is on. Creating model will be saved in dir "{}"'.format(configs.model_save_path))
     main()
-    # python main.py -dataset_name -batch_size 16 -use_description -use_entity_connection
+
+

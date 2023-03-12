@@ -82,14 +82,14 @@ class KG_dataset(Dataset):
                     input_sequence = input_sequence + ' <extra_id_0> ' + self.entityid2name[related_triple[0]] + ' | ' + self.relationid2name[related_triple[2]] + ' | ' + self.entityid2name[related_triple[1]]
             input_sequence += ' <extra_id_0> ' + description
             input_sequence += ' <extra_id_0> predict tail ' + head_name + ' | ' + rel_name
-            target_sequence = tail_name
+            target_sequence = '<extra_id_0>' + tail_name + '<extra_id_1>'
         if mode == 'head':
             if len(related_triples) > 0:
                 for related_triple in related_triples:
                     input_sequence = input_sequence + ' <extra_id_0> ' + self.entityid2name[related_triple[1]] + ' | ' + self.relationid2name[related_triple[2]] + ' | ' + self.entityid2name[related_triple[0]]
             input_sequence += ' <extra_id_0> ' + description
             input_sequence += ' <extra_id_0> predict head ' + tail_name + ' | ' + rel_name
-            target_sequence = head_name
+            target_sequence = ' <extra_id_0> ' + head_name + ' <extra_id_1> '
         
         tokenized_input_sequence = self.tokenizer(input_sequence, max_length=self.input_max_length, truncation=True, padding='max_length')
         source_ids = tokenized_input_sequence.input_ids
@@ -97,7 +97,7 @@ class KG_dataset(Dataset):
         tokenized_target_sequence = self.tokenizer(target_sequence, max_length=self.target_max_length, truncation=True, padding='max_length')
         source_ids = tokenized_input_sequence.input_ids
         target_ids = tokenized_target_sequence.input_ids
-        target_ids[target_ids==0] = -100
+        target_ids[target_ids==self.tokenizer.pad_token_id] = -100
         target_mask = tokenized_target_sequence.attention_mask
         out = {
             'source_ids': source_ids,

@@ -89,10 +89,16 @@ def eval(configs, device, model, tokenizer, tail_dataset, tail_dataloader, head_
     entity_string_to_id = head_dataset.entity_string_to_id
     prefix_trie_dict = constructPrefixTrie(configs, entity_name_list_ori, tokenizer)
     both_ranks = {}
+    if mode == 'val':
+        print("=================   Validating    =================")
+    else:
+        print("=================     Testing     =================")
     for h_or_t in ['tail', 'head']:
         print("validation for predicting {} entity.".format(h_or_t))
         split_ranks = []
-        for batch in tqdm(tail_dataloader if h_or_t=='tail' else head_dataloader, desc="Validation process" if mode=='val' else "Test process"):
+        for batch_idx, batch in enumerate(tail_dataloader if h_or_t=='tail' else head_dataloader):
+            if batch % 500 == 0:
+                print("validating/testing for {} entity, batch index {}.".format(h_or_t, batch_idx))
             input_ids = batch['source_ids'].to(device)
             input_mask = batch['source_mask'].to(device)
             label_sequence = batch['label_sequence']

@@ -1,16 +1,17 @@
-CUDA_VISIBLE_DEVICES=3
+CUDA_VISIBLE_DEVICES=1
+PYTHONUNBUFFERED=1
 
 dataset_name='FB15k-237N'
-model_name='t5-small'
-pretrained_model='model/pretrained_model/t5-small'
+model_name='t5-base'
+pretrained_model='model/pretrained_model/t5-base'
 existing_model=''
 current=`date "+%Y-%m-%d-%H-%M-%S"`
 out_file="./outlog/InstructKG-$dataset_name-$model_name-$current.log"
 
-nohup accelerate launch main.py -dataset_name $dataset_name \
+nohup python -u main.py -dataset_name $dataset_name \
                           -pretrained_model $pretrained_model \
                           -batch_size 16 \
-                          -epochs 15 \
+                          -epochs 20 \
                           -use_description \
                           -use_entity_connection \
                           -use_prefix_search \

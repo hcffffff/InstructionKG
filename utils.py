@@ -62,7 +62,7 @@ def get_next_token_dict(ent_token_ids_in_trie, prefix_trie, entity_num, tokenize
     '''
     neg_candidate_mask = []
     next_token_dict = {(): [32099] * entity_num}
-    for ent_id in tqdm(range(entity_num)):
+    for ent_id in range(entity_num):
         rows, cols = [0], [32099]
         input_ids = ent_token_ids_in_trie[ent_id]
         for pos_id in range(1, len(input_ids)):
