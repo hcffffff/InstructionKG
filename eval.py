@@ -6,7 +6,6 @@ from tqdm import tqdm
 from utils import get_performance, constructPrefixTrie
 
 
-
 def decode(configs, model, tokenizer, input_ids, input_mask, batch, h_or_t, tail_ground_truth_all, head_ground_truth_all, prefix_trie_dict):
     def _extract(generated_text):
         compiler = re.compile(r'<extra_id_0>(.*)<extra_id_1>')
@@ -77,17 +76,14 @@ def decode(configs, model, tokenizer, input_ids, input_mask, batch, h_or_t, tail
     return generated_text
 
 
-def eval(configs, device, model, tokenizer, tail_dataset, tail_dataloader, head_dataset, head_dataloader, mode='val'):
+def eval(configs, device, model, tokenizer, tail_dataset, tail_dataloader, head_dataset, head_dataloader, prefix_trie_dict, mode='val'):
     '''
     Validation/Test data and output performance.
-    TODO: mode为test时更改数据集
     '''
     model.eval()
     tail_ground_truth = tail_dataset.tail_ground_truth_id_all
     head_ground_truth = head_dataset.head_ground_truth_id_all
-    entity_name_list_ori = head_dataset.entityid2name
-    entity_string_to_id = head_dataset.entity_string_to_id
-    prefix_trie_dict = constructPrefixTrie(configs, entity_name_list_ori, tokenizer)
+
     both_ranks = {}
     if mode == 'val':
         print("=================   Validating    =================")
@@ -97,8 +93,8 @@ def eval(configs, device, model, tokenizer, tail_dataset, tail_dataloader, head_
         print("validation for predicting {} entity.".format(h_or_t))
         split_ranks = []
         for batch_idx, batch in enumerate(tail_dataloader if h_or_t=='tail' else head_dataloader):
-            if batch % 500 == 0:
-                print("validating/testing for {} entity, batch index {}.".format(h_or_t, batch_idx))
+            if batch_idx % 500 == 0:
+                print("validating/testing for {} entity, batch index {}...".format(h_or_t, batch_idx))
             input_ids = batch['source_ids'].to(device)
             input_mask = batch['source_mask'].to(device)
             label_sequence = batch['label_sequence']

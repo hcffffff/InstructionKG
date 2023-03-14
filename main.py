@@ -16,22 +16,27 @@ from accelerate import Accelerator
 
 from data import KG_dataset, KG_dataset_val
 from eval import eval
+from utils import constructPrefixTrie
 
-def save_checkpoint(epoch, model, optimizer, val_metrics):
+def save_checkpoint(epoch, model, val_metrics, previous_path=''):
     if configs.model_save_path == '':
         print('MODEL SAVE ERROR, NO DIRECTORY.')
         return
     if not os.path.exists(configs.model_save_path):
         os.makedirs(configs.model_save_path)
+    if previous_path != '' and previous_path != 'last':
+        print("Previous model {} has been removed.".format(previous_path))
+        os.remove(previous_path)
     file_name = 'epoch-{}-mrr-{:.6}.pt'.format(epoch, val_metrics.loc['mean ranking','MRR'])
     # checkpoint = {
     #     'model': model.state_dict(),
     #     'optimizer': optimizer.state_dict(),
     #     'val_metrics': val_metrics
     # }
-    torch.save(model.state_dict(), os.path.join(configs.model_save_path, file_name))
-    print("Model successfully saved at {}".format(os.path.join(configs.model_save_path, file_name)))
-    return
+    cur_path = os.path.join(configs.model_save_path, file_name)
+    torch.save(model.state_dict(), cur_path)
+    print("Model successfully saved at {}".format(cur_path))
+    return cur_path
 
 
 def train():
@@ -58,9 +63,12 @@ def train():
     KG_test_tail_dataLoader = DataLoader(KG_test_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_tail_dataset._collate_fn, shuffle=False)
     KG_test_head_dataLoader = DataLoader(KG_test_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_head_dataset._collate_fn, shuffle=False)
 
+    # 前缀列表
+    prefix_trie_dict = constructPrefixTrie(configs, KG_train_dataset.entityid2name, tokenizer)
     # model, optimizer, train_data, val_tail_data, val_head_data, test_tail_data, test_head_data = accelerator.prepare(model, optimizer, KG_train_dataLoader, KG_val_tail_dataLoader, KG_val_head_dataLoader, KG_test_tail_dataLoader, KG_test_head_dataLoader)
 
     best_val_mrr = 0.0
+    best_val_model_path = ''
     print("================= Start  training =================")
     for epoch in range(configs.epochs):
         print("Epoch # {}".format(epoch))
@@ -83,15 +91,15 @@ def train():
             optimizer.step()
         print("epoch {} training loss {:.8}.".format(epoch, training_loss))
         if epoch+1 == configs.epochs:
-            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, KG_val_tail_dataLoader, KG_val_head_dataset, KG_val_head_dataLoader)
-            save_checkpoint(epoch+1, model, optimizer, val_metrics)
+            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, KG_val_tail_dataLoader, KG_val_head_dataset, KG_val_head_dataLoader, prefix_trie_dict)
+            best_val_model_path = save_checkpoint(epoch+1, model, val_metrics, 'last')
         elif epoch+1 > configs.skip_n_epochs_val_training:
-            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, KG_val_tail_dataLoader, KG_val_head_dataset, KG_val_head_dataLoader)
+            val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, KG_val_tail_dataLoader, KG_val_head_dataset, KG_val_head_dataLoader, prefix_trie_dict)
             if val_metrics.loc['mean ranking','MRR'] > best_val_mrr:
                 best_val_mrr = val_metrics.loc['mean ranking','MRR']
-                save_checkpoint(epoch+1, model, optimizer, val_metrics)
+                best_val_model_path = save_checkpoint(epoch+1, model, val_metrics, best_val_model_path)
     print("================= Finish training =================")
-    test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, KG_test_tail_dataLoader, KG_test_head_dataset, KG_test_head_dataLoader, mode='test')
+    test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, KG_test_tail_dataLoader, KG_test_head_dataset, KG_test_head_dataLoader, prefix_trie_dict, mode='test')
     return
 
 
@@ -109,8 +117,9 @@ def main():
         KG_test_head_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='head')
         KG_test_tail_dataLoader = DataLoader(KG_test_tail_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_tail_dataset._collate_fn, shuffle=False)
         KG_test_head_dataLoader = DataLoader(KG_test_head_dataset, batch_size=configs.val_batch_size, collate_fn=KG_test_head_dataset._collate_fn, shuffle=False)
+        prefix_trie_dict = constructPrefixTrie(configs, KG_test_tail_dataset.entityid2name, tokenizer)
         # model, test_tail_data, test_head_data = accelerator.prepare(model, KG_test_tail_dataLoader, KG_test_head_dataLoader)
-        test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, KG_test_tail_dataLoader, KG_test_head_dataset, KG_test_head_dataLoader, mode='test')
+        test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, KG_test_tail_dataLoader, KG_test_head_dataset, KG_test_head_dataLoader, prefix_trie_dict, mode='test')
         print("Finish training.")
     return
 
@@ -124,7 +133,7 @@ if __name__ == '__main__':
     parser.add_argument('-model', default='', help='Existing model path used for testing.')
     parser.add_argument('-pretrained_model', default='model/pretrained_model/t5-base', help='Pretrained Model Name')
     parser.add_argument('-batch_size', default=16, type=int, help='Training batch size.')
-    parser.add_argument('-val_batch_size', default=4, type=int, help='Validation/Testing batch size.')
+    parser.add_argument('-val_batch_size', default=8, type=int, help='Validation/Testing batch size.')
     parser.add_argument('-num_beams', default=40, type=int, help='Number of samples from beam search')
     parser.add_argument('-epochs', default=20, type=int, help='Training epochs.')
     parser.add_argument('-learning_rate', default=0.001, type=float, help='Learning rate in training.')
