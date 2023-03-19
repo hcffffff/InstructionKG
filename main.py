@@ -11,7 +11,7 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import Adam
 import torch.nn.functional as F
-from transformers import T5Tokenizer, T5ForConditionalGeneration
+from transformers import AutoTokenizer, T5ForConditionalGeneration, BartForConditionalGeneration
 from accelerate import Accelerator
 
 from data import KG_dataset, KG_dataset_val
@@ -44,9 +44,12 @@ def train():
     # device = accelerator.device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Training using device: ", device)
-    model = T5ForConditionalGeneration.from_pretrained(configs.pretrained_model).to(device)
+    tokenizer = AutoTokenizer.from_pretrained(configs.pretrained_model)
+    if 't5' in configs.pretrained_model:
+        model = T5ForConditionalGeneration.from_pretrained(configs.pretrained_model).to(device)
+    elif 'bart' in configs.pretrained_model:
+        model = BartForConditionalGeneration.from_pretrained(configs.pretrained_model).to(device)
     optimizer = Adam(model.parameters(), lr=configs.learning_rate)
-    tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
     # 训练数据集
     KG_train_dataset = KG_dataset(configs, tokenizer)
     KG_train_dataLoader = DataLoader(KG_train_dataset, batch_size=configs.batch_size, collate_fn=KG_train_dataset._collate_fn, shuffle=True)
@@ -92,12 +95,12 @@ def train():
         print("epoch {} training loss {:.8}.".format(epoch, training_loss))
         if epoch+1 == configs.epochs:
             val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, KG_val_tail_dataLoader, KG_val_head_dataset, KG_val_head_dataLoader, prefix_trie_dict)
-            best_val_model_path = save_checkpoint(epoch+1, model, val_metrics, 'last')
+            best_val_model_path = save_checkpoint(epoch, model, val_metrics, 'last')
         elif epoch+1 > configs.skip_n_epochs_val_training:
             val_metrics = eval(configs, device, model, tokenizer, KG_val_tail_dataset, KG_val_tail_dataLoader, KG_val_head_dataset, KG_val_head_dataLoader, prefix_trie_dict)
             if val_metrics.loc['mean ranking','MRR'] > best_val_mrr:
                 best_val_mrr = val_metrics.loc['mean ranking','MRR']
-                best_val_model_path = save_checkpoint(epoch+1, model, val_metrics, best_val_model_path)
+                best_val_model_path = save_checkpoint(epoch, model, val_metrics, best_val_model_path)
     print("================= Finish training =================")
     test_metrics = eval(configs, device, model, tokenizer, KG_test_tail_dataset, KG_test_tail_dataLoader, KG_test_head_dataset, KG_test_head_dataLoader, prefix_trie_dict, mode='test')
     return
@@ -111,7 +114,7 @@ def main():
         # device = accelerator.device
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print("Testing using device: ", device)
-        tokenizer = T5Tokenizer.from_pretrained(configs.pretrained_model)
+        tokenizer = AutoTokenizer.from_pretrained(configs.pretrained_model)
         model = torch.load(configs.model).to(device)
         KG_test_tail_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='tail')
         KG_test_head_dataset = KG_dataset_val(configs, tokenizer, is_val=False, h_or_t='head')

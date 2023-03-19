@@ -1,7 +1,7 @@
 import os
 import torch
 import random
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from utils import read, read_file, get_ground_truth
 
 def batchify(output_dict, key, return_list=False):
