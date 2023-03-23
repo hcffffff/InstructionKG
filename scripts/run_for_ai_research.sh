@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=FB15k-237N-t5-base-epoch-50-03141807
+#SBATCH --job-name=FB15k-237N-t5-base-no_random_entity-epoch-50-03161431
 #SBATCH --partition=2080ti
 #SBATCH -N 1
 #SBATCH --mem=12G
@@ -21,7 +21,6 @@ python -u main.py -dataset_name $dataset_name \
                           -val_batch_size 4 \
                           -epochs $epochs \
                           -use_description \
-                          -use_entity_connection \
                           -use_prefix_search \
                           -max_relation_num 4 \
                           -max_description_length 128 \
